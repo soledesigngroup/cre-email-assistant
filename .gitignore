@@ -1,0 +1,13 @@
+# Environment variables
+.env
+
+# Secret files
+client_secret.json
+
+# Other common files to ignore
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.DS_Store

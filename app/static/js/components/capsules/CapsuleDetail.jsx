@@ -1,12 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import { capsuleAPI } from '../../services/api';
+import { capsuleAPI, emailAPI } from '../../services/api';
+import EmailItem from '../inbox/EmailItem';
 
 const CapsuleContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  animation: fadeIn 0.3s ease-in-out;
+  
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 `;
 
 const CapsuleHeader = styled.div`
@@ -33,6 +40,7 @@ const CapsuleMeta = styled.div`
   display: flex;
   gap: 1rem;
   margin-bottom: 1rem;
+  flex-wrap: wrap;
 `;
 
 const CapsuleMetaItem = styled.div`
@@ -88,15 +96,25 @@ const ActionButton = styled.button`
   padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
   cursor: pointer;
+  transition: all 0.2s ease;
   
   &:hover {
     background-color: ${props => props.primary ? 'var(--primary-dark)' : 'rgba(0, 0, 0, 0.05)'};
+    transform: translateY(-1px);
+  }
+  
+  &:active {
+    transform: translateY(0);
   }
 `;
 
 const CapsuleContent = styled.div`
   display: flex;
   gap: 1.5rem;
+  
+  @media (max-width: 1024px) {
+    flex-direction: column;
+  }
 `;
 
 const CapsuleMain = styled.div`
@@ -111,6 +129,11 @@ const CapsulesSection = styled.div`
   border-radius: var(--border-radius);
   box-shadow: var(--box-shadow);
   padding: 1.5rem;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  }
 `;
 
 const SectionTitle = styled.h2`
@@ -158,51 +181,31 @@ const EntityTag = styled.span`
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
   font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
 `;
 
 const EmailList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.5rem;
 `;
 
-const EmailItem = styled.div`
-  padding: 1rem;
+const EmailItemContainer = styled.div`
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius);
-  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.2s ease;
   
   &:hover {
-    background-color: rgba(0, 0, 0, 0.02);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   }
-`;
-
-const EmailHeader = styled.div`
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 0.5rem;
-`;
-
-const Sender = styled.div`
-  font-weight: 600;
-`;
-
-const Date = styled.div`
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-`;
-
-const Subject = styled.div`
-  font-weight: 500;
-  margin-bottom: 0.5rem;
-`;
-
-const Preview = styled.div`
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 `;
 
 const LoadingSpinner = styled.div`
@@ -213,27 +216,110 @@ const LoadingSpinner = styled.div`
   color: var(--text-secondary);
 `;
 
+const TabContainer = styled.div`
+  display: flex;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 1rem;
+`;
+
+const Tab = styled.button`
+  padding: 0.75rem 1.5rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid ${props => props.active ? 'var(--primary-color)' : 'transparent'};
+  color: ${props => props.active ? 'var(--primary-color)' : 'var(--text-secondary)'};
+  font-weight: ${props => props.active ? '600' : '400'};
+  cursor: pointer;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    color: var(--primary-color);
+  }
+`;
+
+const NotesTextarea = styled.textarea`
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  font-family: 'Inter', sans-serif;
+  font-size: 1rem;
+  min-height: 150px;
+  resize: vertical;
+  margin-bottom: 1rem;
+  
+  &:focus {
+    outline: none;
+    border-color: var(--primary-color);
+  }
+`;
+
 const CapsuleDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [capsule, setCapsule] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('emails');
+  const [notes, setNotes] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [selectedEmail, setSelectedEmail] = useState(null);
   
   useEffect(() => {
-    const fetchCapsule = async () => {
-      setLoading(true);
-      try {
-        const response = await capsuleAPI.getCapsuleById(id);
-        setCapsule(response.data.capsule);
-      } catch (error) {
-        console.error('Failed to fetch capsule:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchCapsule();
+    if (id) {
+      fetchCapsule();
+    }
   }, [id]);
+  
+  const fetchCapsule = async () => {
+    setLoading(true);
+    try {
+      const response = await capsuleAPI.getCapsuleById(id);
+      const capsuleData = response.data.capsule;
+      setCapsule(capsuleData);
+      setNotes(capsuleData.user_notes || '');
+    } catch (error) {
+      console.error('Failed to fetch capsule:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const handleEditCapsule = () => {
+    navigate(`/capsule/${id}/edit`);
+  };
+  
+  const handleArchiveCapsule = async () => {
+    try {
+      await capsuleAPI.updateCapsule(id, { 
+        ...capsule, 
+        status: 'Closed' 
+      });
+      fetchCapsule();
+    } catch (error) {
+      console.error('Failed to archive capsule:', error);
+    }
+  };
+  
+  const handleSaveNotes = async () => {
+    setSavingNotes(true);
+    try {
+      await capsuleAPI.updateCapsule(id, { 
+        user_notes: notes 
+      });
+    } catch (error) {
+      console.error('Failed to save notes:', error);
+    } finally {
+      setSavingNotes(false);
+    }
+  };
+  
+  const handleAddEmail = () => {
+    navigate(`/capsule/${id}/add-email`);
+  };
+  
+  const handleSelectEmail = (email) => {
+    setSelectedEmail(email);
+  };
   
   // Format date
   const formatDate = (dateString) => {
@@ -254,7 +340,7 @@ const CapsuleDetail = () => {
       <div>
         <h2>Capsule not found</h2>
         <p>The capsule you're looking for doesn't exist or has been deleted.</p>
-        <ActionButton onClick={() => navigate('/inbox')}>Back to Inbox</ActionButton>
+        <ActionButton onClick={() => navigate('/capsules')}>Back to Capsules</ActionButton>
       </div>
     );
   }
@@ -280,9 +366,11 @@ const CapsuleDetail = () => {
           </CapsuleMeta>
         </CapsuleInfo>
         <CapsuleActions>
-          <ActionButton>Edit</ActionButton>
-          <ActionButton>Archive</ActionButton>
-          <ActionButton primary>Add Email</ActionButton>
+          <ActionButton onClick={handleEditCapsule}>Edit</ActionButton>
+          <ActionButton onClick={handleArchiveCapsule}>
+            {capsule.status === 'Closed' ? 'Reopen' : 'Archive'}
+          </ActionButton>
+          <ActionButton primary onClick={handleAddEmail}>Add Email</ActionButton>
         </CapsuleActions>
       </CapsuleHeader>
       
@@ -290,27 +378,57 @@ const CapsuleDetail = () => {
         <CapsuleMain>
           <CapsulesSection>
             <SectionTitle>Summary</SectionTitle>
-            <p>{capsule.summary}</p>
+            <p>{capsule.summary || 'No summary available.'}</p>
           </CapsulesSection>
           
           <CapsulesSection>
-            <SectionTitle>Emails ({capsule.emails.length})</SectionTitle>
-            <EmailList>
-              {capsule.emails.length === 0 ? (
-                <p>No emails in this capsule yet.</p>
-              ) : (
-                capsule.emails.map((email, index) => (
-                  <EmailItem key={index}>
-                    <EmailHeader>
-                      <Sender>{email.sender_name || email.sender}</Sender>
-                      <Date>{formatDate(email.date)}</Date>
-                    </EmailHeader>
-                    <Subject>{email.subject}</Subject>
-                    <Preview>{email.snippet}</Preview>
-                  </EmailItem>
-                ))
-              )}
-            </EmailList>
+            <TabContainer>
+              <Tab 
+                active={activeTab === 'emails'} 
+                onClick={() => setActiveTab('emails')}
+              >
+                Emails ({capsule.emails.length})
+              </Tab>
+              <Tab 
+                active={activeTab === 'notes'} 
+                onClick={() => setActiveTab('notes')}
+              >
+                Notes
+              </Tab>
+            </TabContainer>
+            
+            {activeTab === 'emails' ? (
+              <EmailList>
+                {capsule.emails.length === 0 ? (
+                  <p>No emails in this capsule yet.</p>
+                ) : (
+                  capsule.emails.map((email, index) => (
+                    <EmailItemContainer key={index}>
+                      <EmailItem 
+                        email={email} 
+                        isSelected={selectedEmail && selectedEmail.id === email.id}
+                        onClick={() => handleSelectEmail(email)}
+                      />
+                    </EmailItemContainer>
+                  ))
+                )}
+              </EmailList>
+            ) : (
+              <div>
+                <NotesTextarea 
+                  value={notes} 
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Add your notes here..."
+                />
+                <ActionButton 
+                  primary 
+                  onClick={handleSaveNotes}
+                  disabled={savingNotes}
+                >
+                  {savingNotes ? 'Saving...' : 'Save Notes'}
+                </ActionButton>
+              </div>
+            )}
           </CapsulesSection>
         </CapsuleMain>
         
@@ -318,7 +436,7 @@ const CapsuleDetail = () => {
           <CapsulesSection>
             <SectionTitle>Properties</SectionTitle>
             <EntityList>
-              {capsule.entities.properties.length === 0 ? (
+              {!capsule.entities.properties || capsule.entities.properties.length === 0 ? (
                 <p>No properties detected.</p>
               ) : (
                 capsule.entities.properties.map((property, index) => (
@@ -333,7 +451,7 @@ const CapsuleDetail = () => {
           <CapsulesSection>
             <SectionTitle>People</SectionTitle>
             <EntityList>
-              {capsule.entities.people.length === 0 ? (
+              {!capsule.entities.people || capsule.entities.people.length === 0 ? (
                 <p>No people detected.</p>
               ) : (
                 capsule.entities.people.map((person, index) => (
@@ -348,7 +466,7 @@ const CapsuleDetail = () => {
           <CapsulesSection>
             <SectionTitle>Companies</SectionTitle>
             <EntityList>
-              {capsule.entities.companies.length === 0 ? (
+              {!capsule.entities.companies || capsule.entities.companies.length === 0 ? (
                 <p>No companies detected.</p>
               ) : (
                 capsule.entities.companies.map((company, index) => (
@@ -358,11 +476,6 @@ const CapsuleDetail = () => {
                 ))
               )}
             </EntityList>
-          </CapsulesSection>
-          
-          <CapsulesSection>
-            <SectionTitle>Notes</SectionTitle>
-            <p>{capsule.user_notes || 'No notes added yet.'}</p>
           </CapsulesSection>
         </CapsuleSidebar>
       </CapsuleContent>
